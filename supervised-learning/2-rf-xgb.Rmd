@@ -1,0 +1,272 @@
+---
+title: "Bagging, Random Forests and Boosting"
+output:
+  html_notebook: default
+  html_document: default
+---
+
+This notebook contains code from 2-rf-xgb.R and the corresponding output.
+
+## Setup
+
+Again, all packages and data have to be set up first.
+
+```{r}
+library(foreach)
+library(caret)
+library(rpart)
+library(randomForest)
+library(xgboost)
+library(pdp)
+```
+
+```{r}
+load("FrankfurtMain.Rda")
+fr_immo$address <- NULL
+fr_immo$quarter <- NULL
+
+set.seed(7345)
+train <- sample(1:nrow(fr_immo), 0.8*nrow(fr_immo))
+fr_test <- fr_immo[-train,]
+fr_train <- fr_immo[train,]
+```
+
+## Bagging
+
+### Using foreach
+
+To exemplify how Bagging works, we can build our own Bagging model with a foreach loop. In this loop, we first sample $n$ observations from our training data with replacement. Then, a regression tree is grown using this sample and the test set predictions from this tree are stored in the object `y_tbag`.
+
+```{r}
+y_tbag <- foreach(m = 1:100, .combine = cbind) %do% { 
+  rows <- sample(nrow(fr_train), replace = T)
+  fit <- rpart(rent ~ ., data = fr_train[rows,], cp = 0.001)
+  predict(fit, newdata = fr_test)
+}
+```
+
+Now we can compare the prediction performance of a single tree (e.g. the first) with the performance of the ensemble (the average of the predictions from all trees).
+
+```{r}
+postResample(y_tbag[,1], fr_test$rent)
+postResample(rowMeans(y_tbag), fr_test$rent)
+```
+
+Additionally, we summarize the row variances of all test set predictions.
+
+```{r}
+summary(apply(y_tbag,1,var))
+```
+
+Instead of Bagging Trees, we can also plug a linear regression model into the foreach loop.
+
+```{r}
+y_rbag <- foreach(m = 1:100, .combine = cbind) %do% { 
+  rows <- sample(nrow(fr_train), replace = T)
+  fit <- lm(rent ~ ., data = fr_train[rows,])
+  predict(fit, newdata = fr_test)
+}
+```
+
+However, Bagging is typically more effective with trees than with linear regression. We can check whether this is the case here by again comparing the performance of a single model with the performance of the ensemble.
+
+```{r}
+postResample(y_rbag[,1], fr_test$rent)
+postResample(rowMeans(y_rbag), fr_test$rent)
+```
+
+Again, summarize the row variances.
+
+```{r}
+summary(apply(y_rbag,1,var))
+```
+
+### Using caret
+
+Fortunately, we can use the `caret` package for building prediction models with predefined functions. For this, we first specify our evaluation method. In the following, we use 5-Fold Cross-Validation.
+
+```{r}
+ctrl  <- trainControl(method = "cv",
+                      number = 5)
+```
+
+This can be passed on to `train`, along with the specification of the model and the method. For Bagging Trees, we use `rf` (Random Forest) and fix the number of `mtry` (the number of features to sample at each split) to the number of predictor variables we have available.
+
+```{r}
+set.seed(7324)
+bag <- train(rent ~ .,
+             data = fr_train,
+             method = "rf",
+             trControl = ctrl,
+             tuneGrid = data.frame(mtry = 17),
+             importance = TRUE)
+```
+
+The results of the training process can be inspected by simply calling the corresponding object. Since we fixed the tuning parameter to a single value, the CV Error for just one model is returned.
+
+```{r}
+bag
+```
+
+Plotting the final model gives us an idea how the error evolves as more trees are added.
+
+```{r}
+plot(bag$finalModel)
+```
+
+Calculating variable importance helps us interpreting results from ensemble methods since now we have grown a lot of trees.
+
+```{r}
+varImp(bag)
+```
+
+However, we can take a look at the individual trees of the Bagging ensemble using `getTree`. Here are the first ten rows of the first two trees.
+
+```{r}
+getTree(bag$finalModel, k = 1, labelVar = T)[1:10,]
+getTree(bag$finalModel, k = 2, labelVar = T)[1:10,]
+```
+
+## Random Forest
+
+Now we use `rf` as intended, i.e. we let `train` try out different numbers of `mtry`.
+
+```{r}
+set.seed(7324)
+rf <- train(rent ~ .,
+            data = fr_train,
+            method = "rf",
+            trControl = ctrl,
+            importance = TRUE)
+```
+
+Now calling the random forest object lists the results of the tuning process.
+
+```{r}
+rf
+```
+
+With random forests, the individuals trees of the ensemble should look quite different.
+
+```{r}
+getTree(rf$finalModel, k = 1, labelVar = T)[1:10,]
+getTree(rf$finalModel, k = 2, labelVar = T)[1:10,]
+```
+
+Especially for ensemble methods, plots can be useful in order to see how the features are related to the outcome according to the fitted model. This can be done separately by predictor... 
+
+```{r, fig.align="center"}
+pdp3 <- partial(rf, pred.var = "m2", ice = T, trim.outliers = T)
+pdp4 <- partial(rf, pred.var = "dist_to_center", ice = T, trim.outliers = T)
+p1 <- plotPartial(pdp3, rug = T, train = fr_train, alpha = 0.3)
+p2 <- plotPartial(pdp4, rug = T, train = fr_train, alpha = 0.3)
+grid.arrange(p1, p2, ncol = 2)
+```
+
+...and also by considering multiple predictors jointly.
+
+```{r, fig.align="center"}
+pdp5 <- partial(rf, pred.var = c("lat", "lon"))
+plotPartial(pdp5, levelplot = F, drape = T, colorkey = F, screen = list(z = 130, x = -60))
+```
+
+## Boosting
+
+For Gradient Boosting, we have to take care of a couple of tuning parameters. Here, we use `xgboost` and build a grid with all combinations of a set of tryout values. See `?xgboost` for information on the available tuning parameters.
+
+```{r}
+grid <- expand.grid(max_depth = 1:3,
+                    nrounds = c(500, 1000),
+                    eta = c(0.05, 0.01),
+                    min_child_weight = 5,
+                    subsample = 0.7,
+                    gamma = 0,
+                    colsample_bytree = 1)
+```
+ 
+Again, this is passed on to `train`, now using `xgbTree` instead of `rf`.
+
+```{r}
+set.seed(7324)
+xgb <- train(rent ~ .,
+             data = fr_train,
+             method = "xgbTree",
+             trControl = ctrl,
+             tuneGrid = grid)
+```
+
+Instead of just printing the results from the tuning process, we can also plot them.
+
+```{r, fig.align="center"}
+plot(xgb)
+```
+
+## CART
+
+Adding a single tree for comparison...
+
+```{r}
+grid <- expand.grid(maxdepth = 1:30)
+                    
+set.seed(7324)
+cart <- train(rent ~ .,
+              data = fr_train,
+              method = "rpart2",
+              trControl = ctrl,
+              tuneGrid = grid)
+```
+
+## Linear regression
+
+...and also a linear regression model.
+
+```{r}
+set.seed(7324)
+reg <- train(rent ~ .,
+             data = fr_train,
+             method = "glm",
+             trControl = ctrl)
+```
+
+We may want to take a glimpse at the regression results.
+
+```{r}
+summary(reg)
+```
+
+## Comparison
+
+After we ran a bunch of models, we can use `resamples` to gather the cross-validation results from all of them.
+
+```{r}
+resamps <- resamples(list(Bagging = bag,
+                          RandomForest = rf,
+                          Boosting = xgb,
+                          CART = cart,
+                          Regression = reg))
+```
+
+This object can now be used for comparing these models with respect to their performance, based on CV in the training set.
+
+```{r, fig.align="center"}
+bwplot(resamps, metric = c("RMSE", "Rsquared"), scales = list(relation = "free"), xlim = list(c(0, 500), c(0, 1)))
+
+```
+
+## Prediction
+
+Finally, we can predict the outcome in the test data and evaluate the models based on their test set performance.
+
+```{r}
+y_bag <- predict(bag, newdata = fr_test)
+y_rf <- predict(rf, newdata = fr_test)
+y_xgb <- predict(xgb, newdata = fr_test)
+y_cart <- predict(cart, newdata = fr_test)
+y_reg <- predict(reg, newdata = fr_test)
+
+postResample(pred = y_bag, obs = fr_test$rent)
+postResample(pred = y_rf, obs = fr_test$rent)
+postResample(pred = y_xgb, obs = fr_test$rent)
+postResample(pred = y_cart, obs = fr_test$rent)
+postResample(pred = y_reg, obs = fr_test$rent)
+```

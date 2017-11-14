@@ -1,0 +1,266 @@
+---
+title: "02exercisesMDS"
+author: "Sebastian Sternberg"
+date: "17 November 2017"
+output: html_document
+---
+
+MDS Practical Session
+  - Learn how to calculate different distance measures in R
+  - Apply classical MDS and non-metric MDS to Immoscout data set
+
+# Distance measures
+
+R offers a variety of distance measures in the dist() function. The default is the Euclidean distance due to its popularity. 
+
+```{r}
+rm(list = ls() )
+library(dplyr)
+
+
+?dist
+
+```
+
+We can start with calculating the distance of the first five observations from the USArrest data example:
+
+```{r}
+
+dist.usarrest <- dist(USArrests[1:5, ]) #only selecting the first five observations
+dist.usarrest
+
+```
+
+We could easily select a different distance measure:
+
+```{r}
+
+dist.usarrest <- dist(USArrests[1:5, ], method = "manhattan") #only selecting the first five observations
+dist.usarrest
+
+```
+
+When to use which distance? Heavily depends on the problem. Euclidean is a popular choice, but is not great for high dimensions (the distance matrix becomes quickly incredibly large). Moreover, Euclidean distance squares the differences, but Manhattan just takes the absolute value; the result is that Euclidean distances are more strongly influenced by large component-wise differences. The right choice of distances is heavily discussed in the Big Data context (see for instance Pedro Domingos 2012, "A Few Useful Things to Know about Machine Learning", or Zimek et al. 2012, "A survey on unsupervised outlier detection in high-dimensional numerical data"")
+
+## Classical MDS
+
+We start with classical MDS by replicating the Eurodist example from the presentation. Here, the map analogy of MDS is very obvious: beginning with distances, we want to use this information to produce a geometric model (map). 
+
+
+```{r}
+#load the eurodist data
+data("eurodist")
+
+#inspect data
+str(eurodist)
+
+```
+
+In R, classical multidimensional scaling can be done using the cmdscale() function. As an input, it takes a dissimilarity matrix. Because the eurodist data already represents distances, there is no need to calculate distance measures first. 
+
+```{r}
+
+eurodist.cmds <- cmdscale(eurodist, k = 2, eig = T) #we look for a two-dimensional representation
+
+eurodist.cmds$points #these are the new points in the coordinate system
+eurodist.cmds$eig # the corresponding eigenvalues
+
+eurodist.cmds$GOF #the goodness of fit measure
+
+```
+
+Now we can plot the first version of the MDS results of the eurodist data.
+
+```{r}
+plot(eurodist.cmds$points, 
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     pch = 19,
+     las = 1, 
+     bty = "n",
+     cex=1.5,
+     cex.axis = 1.5,
+     cex.lab=1.5)
+
+text(eurodist.cmds$points[, 1],  eurodist.cmds$points[, 2], labels(eurodist))
+
+
+```
+
+Note that in MDS, the axes can be flipped and rotated. Because we know the true result of the MDS scaling procedure, we can thus flip the axes to obtain the original map.
+
+```{r}
+
+plot(eurodist.cmds$points, 
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     pch = 19,
+     las = 1, 
+     bty = "n",
+     cex=1.5,
+     cex.axis = 1.5,
+     cex.lab=1.5)
+ text(eurodist.cmds$points[, 1], -1 * eurodist.cmds$points[, 2], labels(eurodist)) #we multiply the second dimension times -1
+
+
+```
+
+How good is the representation? The goodness of fit is calculated as follows:
+  - Eigenvalues measure variance associated with each dimension of the MDS
+    solution
+  - Sum of first m eigenvalues relative to sum of all q eigenvalues (usually q = k) can be used as a     measure of fit
+  
+```{r}
+
+sum(abs(eurodist.cmds$eig[1:2]))/sum(abs(eurodist.cmds$eig)) #because some eigenvalues are negative, we need the abs command to get the absolute value
+
+eurodist.cmds$GOF #the first entry contains the GoF measure introduced in the presentation
+
+
+```
+
+
+#Applying MDS to Immoscout data to check how dissimilar the city districts are
+
+```{r}
+rm(list = ls())
+
+load("FrankfurtMain.Rda")
+
+
+```
+
+To obtain a meaningful result for the MDS used for the Immoscout data, we need an aggregate version of the data set. Like this, MDS will tell us how (dis)similar the different city districts are. Most of the data is already aggregated on the district level, but we also have to aggregate the distance to city center variable, as well as the rent, m2 and rooms variable. 
+
+```{r}
+
+fr_immo_agg <- select(fr_immo, -address, -lon, -lat) #we drop some variables which are not meaningful for aggregation
+
+agg_immo_fr <- aggregate(. ~ quarter, fr_immo_agg, mean) #we aggregate at the district level
+
+#create distance matrix of aggregated version
+
+agg_immo_fr_scaled <- scale(agg_immo_fr[, 2:ncol(agg_immo_fr)])
+
+#calculate distances and use cmd scale
+immo_dist <- dist(agg_immo_fr_scaled, method = "euclidean")
+immo.cmdscale <- cmdscale(immo_dist, eig = T, k = 2)
+
+#plot the mds 
+
+plot(immo.cmdscale$points,
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     pch = 19,
+     las = 1, 
+     bty = "n",
+     cex=1.1)
+
+text(immo.cmdscale$points[, 1], immo.cmdscale$points[, 2], agg_immo_fr$quarter , cex=0.7, pos = 2)
+
+```
+
+Assessing the Goodness of Fit:
+
+```{r}
+
+sum(abs(immo.cmdscale$eig[1:2]))/sum(abs(immo.cmdscale$eig))
+
+immo.cmdscale$GOF
+```
+The two-dimensional MDS solution "explains" about 62\% of the variance in the district dissimilarities. The remaining variance is error. 
+
+But this example also highlights the fundamental problem of unsupervised learning. It was straight forward to give the two dimensions a meaningful name in the eurodist examples (namely, east-west and north-south). For the Immoscout data, this is not so much straight forward. Nieder-Eschbach and Schwanheim seem to be pretty similar, maybe because they are rather outlying districts, but there is no obvious criterion that states what the axes represent. Without proper knowledge about the data, we need to guess. 
+
+## Non-metric MDS applied to Immoscout data
+
+Lastly, we want to see how non-metric MDS is implemented in R using the same data set. Here, the difference is that the non-metric MDS algorithm does not consider the absolute values, but the ranking. Therefore, non-metric MDS finds a low-dimensional representation which respects the ranking of distances. 
+
+
+In R, non-metric MDS is performed using the isoMDS() function in the MASS package.
+
+```{r}
+require(MASS)
+ 
+?isoMDS
+
+immo.nonmetric <- isoMDS(immo_dist, k=2) # k is the number of dimensions
+
+
+#Plotting the MDS solution just as before
+plot(immo.nonmetric$points,
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     las = 1, 
+     bty = "n",
+     cex=1.1)
+
+text(immo.nonmetric$points[, 1], immo.nonmetric$points[, 2], agg_immo_fr$quarter , cex=0.7, pos = 2)
+
+```
+To compare both outputs:
+
+
+```{r}
+
+par(mfrow = c(1,2)) #set graphic parameter for 2 graphs side by side
+
+plot(immo.cmdscale$points,
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     main = "Classical MDS",
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     las = 1, 
+     bty = "n",
+     cex=1.1)
+
+text(immo.cmdscale$points[, 1], immo.cmdscale$points[, 2], agg_immo_fr$quarter , cex=0.7, pos = 2)
+
+
+plot(immo.nonmetric$points,
+     type = 'n', 
+     bty = "n",
+     asp = 1,
+     xlab = "Dimension 1",
+     ylab = "Dimension 2",
+     las = 1,
+     main = "Non-metric MDS",
+     bty = "n",
+     cex=1.1)
+
+text(immo.nonmetric$points[, 1], immo.nonmetric$points[, 2], agg_immo_fr$quarter , cex=0.7, pos = 2)
+
+
+par(mfrow = c(1,1)) #set parameters back
+
+```
+
+Overall, the two outputs look quite similar. However, when non-metric MDS is used, small changes such as the replacement of Kalbach-Riedberg over Harheim happen. 
+
+
+In non-metric MDS, the Goodness of Fit is assessed via the "STRESS" value. Again, STRESS is the square root of the ratio of the sum of squared differences between the input distances and those of the configuration to the sum of configuration distances squared. 
+
+```{r}
+
+immo.nonmetric$stress
+
+```
+
+As a rule of thumb concerning the STRESS value, 0.10 is considers as good and everything greater than 0.20 as poor. 
+
+Finally, which MDS method should one choose? The metric MDS solution (using Euclidean distances as input) essentially provides the same results as PCA. It can nevertheless be useful when we only have a dissimilarity matrix as input data, or if we want to use a different distance measure. Non-metric MDS relies on rank orders for ordination, and is thus much more flexible. However, it can become quickly computationally demanding, especially in a Big Data context. 
+

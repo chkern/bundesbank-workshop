@@ -1,0 +1,391 @@
+---
+title: "Open exercise unsupervised learning using BACH data"
+author: "Sebastian Sternberg"
+date: "17 November 2017"
+output: html_document
+---
+For the next 1h, we work with the BACH (Bank for the Accounts of Companies Harmonized) data set which you already know from yesterday. We provide you with a smaller version of this data set mainly for computational reasons, but the exercises can be easily extended to the whole data set as well. 
+
+```{r}
+library(caret)
+library(factoextra)
+
+
+rm(list = ls())
+load("BACH.Rda")
+
+```
+
+
+# Multidimensional scaling using the bach data sets
+
+We are interested how similar countries are with respect to the structure of the companies which the bach data set contain. In order to compare countries, we would like to map them on a two-dimensional map. 
+
+In order to achieve this, we first have to aggregate all numeric variables on the country level. In R, this is done as follows:
+
+
+```{r}
+
+head(bach)
+
+agg_bach_countries <- bach[, 5:ncol(bach)] #subset bach data only including numeric variables
+
+agg_bach_countries$country <- bach$country #assign countries to it
+
+agg_bach_countries <- aggregate(. ~ country, agg_bach_countries, mean) #aggregate on country level
+
+head(agg_bach_countries)
+
+
+```
+
+
+## Produce a 2-dimensional map of the bach data using classical MDS
+
+We want to produce a 2-dimensional map of the aggregated bach data using classical MDS. 
+
+Create a matrix just containing the numeric variables in the data set (i.e., only containing column 2: 11).
+
+```{r}
+
+
+```
+
+Scale this matrix.
+
+```{r}
+
+```
+
+Calculate Euclidean distances for this scaled matrix
+
+```{r}
+
+
+```
+
+Apply classical MDS to this matrix (cmdscale)
+
+```{r}
+
+```
+
+Evaluate the goodness of fit. Recall that it is saved in the object as "GOF". 
+
+```{r}
+
+
+```
+
+Finally, plot the classical MDS configuration in a 2-dimensional plot. For this, first plot the points using the plot function, and then assign country labels via the text function.
+
+```{r}
+
+
+```
+
+
+## Classical MDS for aggregration on sector level
+
+Next, we are interested in how similar companies from different sectors are. In order to do so, we have to aggregate the data on the sector level (ignoring the country structure). 
+
+Modify the code from above to aggregate the data by sector
+
+```{r}
+
+
+```
+
+
+Follow the steps from before to produce a 2-dimensional map of the similarity of companies for different sectors. 
+
+
+```{r}
+
+
+
+```
+
+
+## Use the Manhattan metric instead of Euclidian distance. 
+
+Use the Manhattan metric instead of the Euclidean distance for the aggregated by sector data set. Do the results change?
+
+For this, produce two maps (one with Euclidean distances used as input and one with the Manhattan distance). Plot the two graphs side by side. 
+
+```{r}
+
+
+
+```
+
+
+# PCA for dimensionality reduction and data inspection
+
+Now we want to apply PCA to the Bach data. 
+
+Use the Bach data set and apply PCA to it (using the prcomp function). Remember to scale (scale = T) the data. 
+
+```{r}
+
+
+```
+
+Check the goodness of fit. Apply the summary command to the pca object to obtain the proportional variance explained by each principle component. 
+
+
+```{r}
+
+
+```
+
+Produce a scree plot, and decide how many principle components we need. 
+
+```{r}
+
+
+```
+
+Create a biplot of the PCA using the biplot function.
+
+```{r}
+
+```
+
+Now we want to use the PCA results to improve the classification tree prediction model of the dummy profit or loss variable from yesterday. We do this in two steps. First, we split the data into training and test set. Second, we run the same model as yesterday using the caret package (and rpart as method). Third, we run the model that only uses the principle components instead of the original variables. Fourth, compare the results of the two models, also including the out-of-sample prediction.
+
+Step 1: Data pre-processing just as yesterday
+```{r}
+
+require(caret)
+
+## Data preparation
+
+bach$D_loss <- ifelse(bach$net_profit_or_loss < 0, 1, 0)
+bach$D_loss <- as.factor(bach$D_loss)
+
+prop.table(table(bach$D_loss))
+
+set.seed(7345)
+
+bach$year <- as.numeric(as.character(bach$year))
+bach_test <- bach[bach$year == 2015,]
+bach_train <- bach[bach$year < 2015,]
+
+```
+
+Step 2: Run the original classification tree (rpart) from yesterday. Do not use net_profit_or_loss or return_on_equity in this model.
+
+```{r}
+
+#Run regression tree using the original variables in the data set
+set.seed(1234)
+
+folds <- groupKFold(bach_train$year) 
+
+ctrl  <- trainControl(method = "cv",
+                      number = 15,
+                      index = folds)
+
+
+
+```
+
+Step 3: Run the same model, but only use the principle components as the input data. For this, you need to create a new data set only consisting of the first few principle components and the outcome variables first. You can then run the regression tree on this data.
+
+```{r}
+
+#Rerun rpart with pca as input data
+
+#First, extract the principle components and write them into a new data frame
+
+
+#Second, append original outcome variable to this data frame
+
+
+#Run the model, using the pca data frame as input data
+
+
+```
+
+Step 4: Compare the predictive power of the two models. Which one is better?
+
+Insample comparison:
+```{r}
+
+
+```
+
+
+Out-of-sample comparison: (we give you the solution because for the PCA part, it is tricky to modify the test data)
+```{r error=TRUE}
+#OOS for original model
+
+pred.bach.rpart.original <- predict(rpart.bach.original, newdata = bach_test)
+
+#OOS with rpart including PCA
+#transform test into PCA
+test.data <- predict(pca.bach, newdata = bach_test)
+test.data <- as.data.frame(test.data)
+
+#select the first 9 components as we did before
+test.data <- test.data[,1:9]
+test.data$D_loss <- bach_test$D_loss
+
+#do the prediction
+pred.bach.rpart.pca <- predict(rpart.bach.pca, test.data)
+
+```
+
+Look at the two confusion matrices:
+
+```{r}
+#Look at confusion matrices using the confusionMatrix command
+
+
+```
+
+# Clustering
+
+Lastly, clustering should be applied to the bach data set. For simplicity, we only use data from 2015. 
+
+
+```{r}
+#subset data set, and delete D-loss variable
+bach$D_loss <- NULL
+bach_2015 <- bach[bach$year == 2015, ]
+
+```
+
+
+Create a scaled version of this data set. Remember that k-means only works with numeric data, so you also need to drop the first 4 columns. Name this object **bach_scaled_2015**.
+
+```{r}
+
+
+```
+
+Before we start with k-means, we need to decide how many clusters we want to find. We can use the "elbow" method for that. 
+
+```{r error=TRUE}
+library(factoextra)
+
+fviz_nbclust(bach_scaled_2015, #data set we want to use
+             kmeans, #cluster method
+             method = "wss", #"wss" =  total within sum of square
+             k.max = 30) +
+labs(subtitle = "Elbow method")
+
+
+```
+
+We start with nine clusters. Run a k-means with k = 9. 
+
+```{r}
+
+
+```
+
+Visualize the cluster solution. For this, use the eclust function to run k-means with k = 9 again. Plot the output using the fviz_cluster function. 
+
+
+```{r}
+
+
+
+```
+
+
+For a further check, create a contingency table that shows the cluster assignment over the sectors and over the countries. 
+
+```{r}
+
+
+```
+
+If necessary, you can re-run k-means for different numbers of k. 
+
+# Hierarchical clustering
+
+Lastly, we want to apply hierarchical clustering on the bach data set. For h-clust, we need a distance matrix as an input. We create a distance matrix using Euclidean distance for the reduced bach 2015 data set. 
+
+```{r}
+
+```
+
+Now you can run a hierarchical cluster analysis using the hclust function.
+
+```{r}
+
+
+```
+
+Plot the dendogram and draw red borders around 10 clusters
+
+```{r}
+
+```
+
+Validate the cluster solution just as for k-means before (using eclust)
+
+```{r}
+
+
+```
+
+
+# Use cluster assignment to improve prediction
+
+Finally, we would like to use clustering to improve our model of the prediction of the net income or loss of a company. We stick to the data from 2015.
+
+```{r error=TRUE}
+
+## Data preparation
+bach_2015$D_loss <- ifelse(bach_2015$net_profit_or_loss < 0, 1, 0)
+bach_2015$D_loss <- as.factor(bach_2015$D_loss)
+
+prop.table(table(bach$D_loss))
+
+#we append the cluster solution to the original data set
+bach_2015$kmeans9 <- as.factor(bach.kmeans9$cluster)
+
+
+#We split the data into training and test, using the whole 2015 data set 
+set.seed(7345)
+
+iffer_sampling <- sample(1:nrow(bach_2015), 0.8*nrow(bach_2015))
+bach_test_2015 <- bach_2015[-iffer_sampling,]
+bach_train_2015 <- bach_2015[iffer_sampling,]
+
+```
+
+Now we can start with the models. Run one model using the 2015 training data set, not using the kmeans9 , net_profit_or_loss or return_on_equity variable. Include the kmeans9 variable in the second run
+
+```{r}
+
+#set up CV:
+ctrl  <- trainControl(method = "cv",
+                      number = 5)
+
+#First run
+set.seed(1234)
+
+#Second rund
+set.seed(1234)
+
+
+
+```
+
+We also need to check the out-of-sample performance. 
+
+```{r}
+
+#Assess OOS performance
+
+
+```
+
+Unfortunately, the cluster information did not help to improve the prediction. We could now continue to search for different cluster solutions, for instance for different numbers of k. 
+
+

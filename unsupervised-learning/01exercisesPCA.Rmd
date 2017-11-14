@@ -1,0 +1,381 @@
+---
+title: "Practical Session PCA"
+author: "Sebastian Sternberg"
+date: "17 November 2017"
+output: html_document
+---
+
+PCA Practical Session
+ - Learn how to do PCA in R replicating the USArrest Data example
+ - Apply PCA to Immoscout data set
+ - Apply it to supervised learning problems from yesterday
+
+Goal: 
+  - Learn how to implementing PCA in R
+  - See how PCA can help for both dimension reduction and data inspection
+  - See how PCA can improve the computational time of supervised learning methods
+
+
+# PCA application on USArrest data
+
+```{r}
+rm(list = ls()) #removes everything in the workspace
+
+```
+
+Have a look at the data set
+
+```{r}
+data("USArrests")
+head(USArrests)
+
+```
+
+A first look at the data: a matrix of scatterplots
+
+```{r}
+pairs(USArrests, main = "Scatterplot Matrix") 
+
+```
+
+Notice that in this simple example, we already see through eyeballing that some variables are correlated. In the big data context, eyeballing is no longer feasable. 
+
+
+PCA in R is done using the prcomp() function
+```{r}
+?prcomp #looking at the help function
+```
+
+prcomp() returns an object that includes everything we need for the PCA. This includes the loadings and scores, as well as the explained variance which we use later to judge how good PCA worked. 
+
+```{r}
+pca.usa <- prcomp(x = USArrests, 
+                  scale. = TRUE)
+
+```
+
+The pca.usa object contains the results of the PCA. 
+
+```{r}
+pca.usa 
+```
+
+By default, it shows the new dimensions in the columns for all the independent variables in the rows. Of course we can also look at the loadings and the individuals scores for each state. 
+
+```{r}
+
+pca.usa$rotation #contains the loadings 
+pca.usa$x       # contains the scores
+
+```
+
+Let's replicate the biplot from the presentation. Again, the biplot is based on the first two principal components and contains information about the scores and the loadings (magnitudes) of the new dimensions. 
+
+First we produce a simple scatterplot of the first two principle components.  
+
+```{r}
+
+biplot(pca.usa,
+       scale=0, 
+       cex=.7, 
+       main = "Biplot US Arrest Data",
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       las = 1)
+
+```
+
+This plot already looks very similar to the biplot from the presentation, but to make it look exactly the same we simply have to reverse the scores of one dimension. 
+
+```{r}
+pca.usa$rotation <- -pca.usa$rotation #multiplying the original rotation (loadings) times -1
+pca.usa$x <- -pca.usa$x               #multiplying the original scores times -1
+
+```
+
+Now we can replicate the biplot from the presentation. In R, this is done using the biplot() function. 
+
+```{r}
+biplot(pca.usa,
+       scale=0, 
+       cex=.7, 
+       main = "Biplot US Arrest Data",
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       las = 1)
+
+```
+This gives exactly the same plot. 
+
+**Interpretation:**
+A biplot always plots the first two principle components of a data set. 
+
+  - The black state names represent the scores of the states for the first two principal components (like a coordinate system)
+  - The red arrows indicate the first two principal component loading vectors (and therefore, the magnitude)
+  - For example, the loading for Rape on the first component is 0.54, and it loading on the second principal component 0.17       (the word Rape is centered at the point (0.54, 0.17)).
+  - The first loading vector places approximately equal weight on Assault, Murder ,and Rape, less weight on UrbanPop
+  - This component corresponds to the overall rates of serious crime
+  - Second loading vector places most of its weight on UrbanPop and much less weight on the other three features
+  - This component corresponds to the level of urbanization of the state 
+  - Crime-related variables are located close to each other; UrbanPop is distant
+  - Crime-related variables are correlated with each other
+  - States with high murder rates tend to have high assault and rape rates; UrbanPop variable is less correlated with the         other three
+
+The importance of scaling:
+
+Scaling is very important to ensure that the variables used in the PCA are comparable. Not scaling variables results in a highly missleading PCA output. 
+
+We replicate the example from the presentation. 
+
+```{r}
+pca.usa.unscaled <- prcomp(USArrests, scale. = F) #this is an unscaled PCA of the usArrest data
+
+```
+
+Let's compare the two PCA outputs in two biplots
+
+```{r}
+
+par(mfrow = c(1,2))#set the graphic margins so that we can plot side by side
+
+biplot(pca.usa,
+       scale=0, 
+       cex=.7, 
+       main = "Scaled",
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       las = 1,
+       xlabs = rep("*", nrow(USArrests)) #the labels should not be displayed so that we see more
+)
+
+biplot(pca.usa.unscaled,
+       scale=0, 
+       cex=.7, 
+       main = "Unscaled",
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       las = 1,
+       xlabs = rep("*", nrow(USArrests))#the labels should not be displayed so that we see more
+)
+
+par(mfrow = c(1,1)) #set the graphic parameters back
+
+
+
+```
+
+Why makes scaling such a difference? Variables are measured in different units; Murder, Rape,and Assault are reported as the number of occurrences per 100,000 people, and UrbanPop is the percentage of the state’s population that lives in an urban area. These four variables have variance 18.97, 87.73, 6945.16,and 209.5, respectively. Consequently, if we perform PCA on the unscaled variables, then the first principal component loading vector will have a very large loading for Assault, since that variable has by far the highest variance. Because it is undesirable for the principal components obtained to depend on an arbitrary choice of scaling, we typically scale each variable to have standard deviation one before we perform PCA.
+
+Scaling and not scaling results in different loadings and scores for the PCAs
+
+```{r}
+#the loadings are different:
+pca.usa.unscaled$rotation 
+pca.usa$rotation 
+
+#and the scores differ, too:
+
+pca.usa.unscaled$x
+pca.usa$x
+
+```
+
+By looking at the covariance matrix we can see that Assault has indeed by far the highest variance. 
+
+```{r}
+var(USArrests) #the diagonal of this variance cov. matrix includes the variance for each variable.
+
+```
+
+### Proportion of variance explained
+How much of the information in a given data set is lost by projecting the observations onto the first few principal
+components? And how many principle compoments are required for the data reduction? We can answer these questions by looking at the proportion of variance explained (PVE) by each principle component. 
+
+ - The PVE is given by the positive quantity between 0 and 1 (and by design, the sum up to 1)
+ - We can use the eigenvalues to calculate the PVE for each principle component (eigenvector)
+ - The PVE of a principle component is simply $\frac{\lambda_i}{\sum_{n}^{i= 1} \lambda_i}$
+
+To get the PVE in R, we can simply use the summary() function:
+```{r}
+summary(pca.usa)
+```
+
+Here, we see that the first two principal components explain almost 87\% of the variance in the data, and the last two principal components explain only 13\% of the variance. 
+
+To have a visual representation of the PVE by principle component 
+
+```{r}
+#get the PVE from the pca output
+
+pca.usa.var <- pca.usa$sdev ^ 2
+pca.usa.pvar <- pca.usa.var/sum(pca.usa.var)
+
+#This gives us exactly the variance obtained va 
+
+plot(pca.usa.pvar,
+     xlab="Principal Components", 
+     ylab="Proportion of variance explained", 
+     ylim=c(0,1), 
+     type='b', 
+     xaxt='n', 
+     bty = "n", 
+     las = 1, 
+     cex=1.5,
+     cex.axis = 1.5, 
+     lwd = 2, 
+     cex.lab=1.5)
+axis(side = 1, at = 1:4, tck = 0)
+
+#We can do the same for the cumulative proportion of variance explained
+plot(cumsum(pca.usa.pvar),
+     xlab="Principal Component", 
+     ylab="Cumulative proportion of variance explained", 
+     ylim=c(0,1), 
+     type='b', 
+     xaxt='n',
+     bty = "n", 
+     las = 1,
+     cex=1.5,
+     cex.axis = 1.5, lwd = 2, 
+     cex.lab=1.5
+  )
+  axis(side = 1, at = 1:4, tck = 0)
+```
+
+So how many principle components should we use? The decision of how many principle components to use is often based on eyeballing using the "elbow" method. That is, we are looking for a point at which the proportion of variance explained by each subsequent principal component drops off. In our application, a fair amount of variance is explained by the first two principal components, and there is an elbow after the second component. The third principle component explains less than ten percent of the variance in the data, and the fourth principal component explains less than half that and so is essentially worthless.
+
+
+### PCA applied to Immoscout data set
+
+We want to apply PCA to the immoscout data set which was used yesterday for supervised learning. We want to achive two things: first, we want to have a better understanding of the relationship between the variables in the data set. Second, we want to extract - in the best case - a few principle components that can help to summarize the features better. PCA thus becomes a data pre-processing step. 
+
+```{r}
+rm(list = ls())
+
+load("FrankfurtMain.Rda")
+
+head(fr_immo)
+
+```
+
+PCA can only work with numeric data. Thus, the present data set needs to be transformed into a new data set not containing variables such as the addresses etc. 
+
+```{r}
+fr_immo_reduced <- fr_immo[, -c(1, 5:7)] #we remove the address, the quarter, and the lon and lat
+
+```
+
+We could start with a scatterplot of each variable, but given that we have 16 variables in the data set, this is not really helpful. 
+
+```{r}
+pairs(fr_immo_reduced)
+```
+
+### PCA for data inspection
+
+
+```{r}
+
+pca.frmain <- prcomp(fr_immo_reduced, scale. = T)
+
+biplot(pca.frmain,
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       xlabs = rep("*", nrow(fr_immo_reduced))#the labels should not be displayed so that we see more
+)
+
+
+```
+
+A simple PCA already reveals a lot of interesting patterns which intuitively make sense:
+ - the number of rooms, m2, and rent are highly correlated, but also with the number of kitas (day-care centers) and total numbers of doctors in a district.
+ - the vote share of the AfD is correlated with the distance to the city center. 
+
+Of course, not scaling would make a big difference again:
+
+```{r}
+
+pca.frmain.noscale <- prcomp(fr_immo_reduced, scale. = F)
+
+biplot(pca.frmain.noscale,
+       xlab = "First Principal Component",
+       ylab = "Second Principal Component",
+       xlabs = rep("*", nrow(fr_immo_reduced)) #the labels should not be displayed so that we see more
+)
+
+```
+
+How successfull was the dimension reduction? How many principle components do we need?
+
+```{r}
+summary(pca.frmain)
+
+#and a visual inspection using the scree plot:
+
+pca.frmain.var <- pca.frmain$sdev ^ 2
+pca.frmain.pvar <- pca.frmain.var/sum(pca.frmain.var)
+
+#This gives us exactly the variance obtained va 
+
+plot(pca.frmain.pvar,
+     xlab="Principal Components", 
+     ylab="Proportion of variance explained", 
+     ylim=c(0,0.6), 
+     type='b', 
+     xaxt='n', 
+     bty = "n", 
+     las = 1, 
+     cex=1.5,
+     cex.axis = 1.5, 
+     lwd = 2, 
+     cex.lab=1.5)
+axis(side = 1, at = 1:23, tck = 0)
+
+```
+
+The first two principle components together only explain around 60\% of the variance. Together with the third and fourth, one can explain 84\%. We see that after the 6th principle component, we see an "elbow" in the plot. Principle components 7:23 are essentially worthless. 
+
+Hence, in the following we will use the first 6 principle components to see whether we can improve the performance of yesterday's random forest. 
+
+### PCA for dimension reduction
+
+We first run the same random forest regression than yesterday. Using PCA to improve prediction models with respected to accuracy is debated in the literature, but can be worth it with respect to computational time in the age of Big Data. We test this using a random forest example. 
+
+```{r}
+require(randomForest)
+
+#Run a random forest on the first 500 observations of the whole data set
+set.seed(1234)
+start.time <- Sys.time()
+rf_all <- randomForest(rent ~ .-address -quarter, data = fr_immo)
+
+end.time <- Sys.time()
+time.taken.all <- end.time - start.time
+time.taken.all
+rf_all
+```
+
+Now we use the scores of the PCA to rerun our random forest. 
+
+```{r}
+head(pca.frmain$x)
+
+#create new data set only including the first 6 principle components and the outcome variable
+fr_main_pcascores <- as.data.frame(pca.frmain$x[, 1:6])
+fr_main_pcascores$rent <- fr_immo_reduced$rent
+
+#Run the model only including pca scores
+set.seed(1234)
+
+start.time <- Sys.time()
+
+rf.pca <- randomForest(rent ~ ., data =fr_main_pcascores )
+
+end.time <- Sys.time()
+time.taken.pca <- end.time - start.time
+time.taken.pca
+
+rf.pca #faster + more accurate!
+
+```
+

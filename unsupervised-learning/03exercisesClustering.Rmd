@@ -1,0 +1,425 @@
+---
+title: "03exercisesClustering"
+author: "Sebastian Sternberg"
+date: "17 November 2017"
+output: html_document
+---
+
+Clustering practical session
+ - Learn how to use k-means and hierarchical clustering in R
+ - Apply both techniques to Immoscout data
+ - Learn about different approaches for cluster validation
+ - Apply clustering as a data pre-processing step
+
+
+```{r}
+#empty workspace
+rm(list = ls())
+
+```
+
+# K-means clustering
+
+The function kmeans() performs K-means clustering in R. We begin with kmeans() a simple simulated example in which there truly are two clusters in the data: the first 25 observations have a mean shift relative to the next 25 observations (Example taken from James et atl. (2013)).
+
+
+```{r}
+set.seed (2)
+x=matrix (rnorm (50*2) , ncol =2)
+x[1:25 ,1]=x[1:25 ,1]+3
+x[1:25 ,2]=x[1:25 ,2] -4
+
+```
+
+We now perform K-means clustering with K = 2.
+
+
+```{r}
+
+km.out <- kmeans (x,2, nstart =20)
+km.out
+
+```
+
+The K-means clustering perfectly separated the observations into two clusters even though we did not supply any group information to kmeans(). We can plot the data, with each observation colored according to its cluster
+assignment.
+
+
+```{r}
+
+plot(x, col = (km.out$cluster +1) , main="K-Means Clustering
+Results with K=2", xlab ="", ylab="", pch =20, cex =2)
+
+```
+
+Here the observations can be easily plotted because they are two-dimensional. If there were more than two variables then we could instead perform PCA and plot the first two principal components score vectors (more on that later). 
+
+In this example, we knew that there really were two clusters because we generated the data. However, for real data, in general we do not know the true number of clusters. We could instead have performed K-means clustering on this example with K = 3.
+
+
+```{r}
+set.seed(1234)
+
+km.out1 <- kmeans(x, 3, nstart = 20)
+
+
+plot(x, col =(km.out1$cluster +1) , main="K-Means Clustering
+Results with K=3", xlab ="", ylab="", pch =20, cex =2)
+
+```
+
+As pointed out in the presentation, different initial starting values can lead to different cluster assignments. To validate our solution, we can use the nstart paramater in the kmeans function.
+
+```{r}
+
+set.seed(123)
+km.out <- kmeans (x,3, nstart =1)
+km.out$tot.withinss
+
+set.seed(123)
+km.out <- kmeans (x,3, nstart =20)
+km.out$tot.withinss
+
+set.seed(123)
+km.out <- kmeans (x,3, nstart =50)
+km.out$tot.withinss
+
+```
+
+Note that *km.out$tot.withinss* is the total within-cluster sum of squares, which we seek to minimize by performing K-means clustering. 
+
+It is strongly recommended always running K-means clustering with a large value of nstart, such as 20 or 50, since otherwise undesirable local optimum may be obtained. The default of nstart in the k-means function is 1. Since K-means cluster analysis starts with k randomly chosen centroids, a different solution can be obtained each time the function is invoked. Use the set.seed() function to guarantee that the results are reproducible. 
+
+#Hclust
+
+In R, the hclust() function implements hierarchical clustering.
+
+We use the same fake data as before.
+
+```{r}
+
+hc.complete <- hclust (dist(x), method ="complete")
+# plot the dendogram
+plot(hc.complete, 
+     xlab = "",
+     sub = "")
+# draw red borders around the 2 clusters 
+rect.hclust(hc.complete, k=2, border="red")
+
+
+```
+
+It is very simple to change the linkage: 
+
+```{r}
+
+#average linkage
+hc.average <- hclust (dist(x), method ="average")
+
+#single linkage
+hc.single <- hclust (dist(x), method ="single")
+
+```
+
+We can now plot the dendrograms obtained using the usual plot() function. The numbers at the bottom of the plot identify each observation.
+
+```{r}
+
+par(mfrow=c(1,3)) #plot 3 graphs in 1 row
+plot(hc.complete ,main="Complete Linkage ", xlab="", sub ="", cex=.9)
+plot(hc.average , main="Average Linkage", xlab="", sub ="", cex=.9)
+plot(hc.single , main="Single Linkage ", xlab="", sub ="", cex=.9)
+
+par(mfrow=c(1,1)) #set the graph options back to default
+
+```
+
+To determine the cluster labels for each observation associated with a given cut of the dendrogram, we can use the cutree() function:
+
+```{r}
+
+cutree(hc.complete , 2)
+cutree(hc.average , 2)
+cutree(hc.single , 2)
+```
+
+For this data, complete and average linkage generally separate the observations into their correct groups. However, single linkage identifies one point as belonging to its own cluster. A more sensible answer is obtained when four clusters are selected, although there are still two singletons.
+
+```{r}
+cutree(hc.single , 4)
+
+```
+
+To scale the variables before performing hierarchical clustering of the observations, we use the scale() function:
+
+```{r}
+xsc <- scale(x)
+
+plot(hclust(dist(xsc), 
+     method ="complete"), 
+     main="Hierarchical Clustering with Scaled Features ")
+
+```
+
+To compare with unscaled version:
+
+```{r}
+par(mfrow = c(1,2))
+
+plot(hc.complete,main = "Hierarchical Clustering with Scaled Features")
+
+plot(hclust(dist(xsc), 
+     method ="complete"), 
+     main="Hierarchical Clustering with Scaled Features")
+
+
+par(mfrow = c(1,1))
+```
+
+Here, scaling does not seem to make much of a difference. However, when variables are measured on different scales, we will likely want to standardize the data before proceeding.
+
+We now turn to a more substantial example, using the Immoscout example data
+
+
+# Exercise clustering on immo scout fr data
+
+Load the data as usual.
+```{r}
+rm(list = ls())
+
+load("FrankfurtMain.Rda")
+
+```
+
+We remove the character variables the data as usual:
+
+```{r}
+fr_immo_reduced <- fr_immo[, -c(1, 5:7)] #we remove the address, the quarter, and the lon and lat
+
+```
+
+## K-means clustering for Immoscout data
+
+We start with applying k-means clustering to the Immoscout data. In the first step, we need to scale the data. 
+```{r}
+# scaling the variables
+fr_immo_reduced_scaled <- scale(fr_immo_reduced)
+
+```
+
+In the second step, k-means requires us to pre-specify the desired number of clusters. 
+
+```{r}
+
+# K-Means Cluster Analysis
+k.means.immo10 <- kmeans(fr_immo_reduced_scaled, 
+                       10, # 10 clusters 
+                       nstart = 50) # ensure that atleat 50 random sets are choosen  
+
+```
+
+We can use the elbow method to obtain an intutition for the optimal number of clusters. The elbow method looks at the percentage of variance explained as a function of the number of clusters: One should choose a number of clusters so that adding another cluster doesn't give much better modeling of the data. 
+
+The total within-cluster sum of squares (WSS) measures the compactness of the clustering and we want it to be as small as possible. The Elbow method looks at the total WSS as a function of the number of clusters: One should choose a number of clusters so that adding another cluster doesn't improve much better the total WSS. This is then the "elbow criterion". This "elbow" cannot always be unambiguously identified. 
+
+In R, an easy way to obtain the elbow plot is using the factoextra package:
+
+```{r}
+library(factoextra)
+fviz_nbclust(fr_immo_reduced_scaled, #data set we want to use
+             kmeans, #cluster method
+             method = "wss", #method used for estimating the optimal number of clusters. "wss" =  total within sum of square
+             k.max = 30) +
+labs(subtitle = "Elbow method")
+
+```
+
+In this case, there is no unambiguous elbow. In fact, there are even two spikes in the other direction. There are additional methods available to validate cluster solutions such as the **average silhouette** approach or the **gap statistic**, but these methods would be well beyond this short introduction. 
+
+However, there exists another visual method to inspect the cluster solution: clusplots (Pison et al. 1999). The clusplot uses PCA to draw the data. It uses the first two principal components (as a dimension reduction of the data) to plot the observations including their cluster assignments. We plot the initial k-means cluster with k = 10 using the e-clust function
+
+```{r}
+
+# K-means clustering with eclust: create an eclust object, which is a wrapup function for different cluster methods
+
+km.res.10 <- eclust(fr_immo_reduced_scaled, "kmeans", k = 10, nstart = 50, graph = FALSE)
+
+# Visualize k-means clusters
+fviz_cluster(km.res.10, geom = "point", ellipse.type = "norm",
+             palette = "jco", ggtheme = theme_minimal())
+
+
+```
+
+We see that we need more clusters. We thus rerun the k-means with a higher k. We know that we have around 40 different city districts in our data (something we would not know normally). Thus, we set K = 40. 
+
+```{r message = FALSE, warning = FALSE}
+
+km.res.40 <- eclust(fr_immo_reduced_scaled, "kmeans", k = 40, nstart = 50, graph = FALSE)
+
+# Visualize k-means clusters
+fviz_cluster(km.res.40, geom = "point", ellipse.type = "norm", ggtheme = theme_minimal())
+
+```
+This looks a bit better, although we overfit a little. Let's assign the two cluster solutions to the original data. 
+
+Because we have spatial data, there is a better, and more intuitive way to validate the cluster solutions: plotting the observations with their cluster assignments on a map. 
+
+```{r error = T}
+require(ggmap)
+#ATTENTION: qmap does not work without internet connection, and produces an error message (over query limit) from time to time. In this case, just re-run it. 
+
+# append cluster assignment
+
+fr_immo$kmeans10 <- as.factor(km.res.10$cluster)
+fr_immo$kmeans40 <- as.factor(km.res.40$cluster)
+
+#plot the kmeans 10 solution using ggmap
+
+qmap("Frankfurt", 
+     zoom = 12,
+     maptype="hybrid"
+     ) + 
+
+  geom_point(aes(x=lon, 
+                 y=lat, 
+                 color = kmeans10
+                 ), 
+             data=fr_immo,  
+             size=2)
+
+#plot kmeans40 cluster solution
+
+qmap("Frankfurt", 
+     zoom = 12,
+     maptype="hybrid")+ 
+  
+  geom_point(aes(x=lon, 
+                 y=lat, 
+                 color = kmeans40
+                 ), 
+             data=fr_immo,  
+             size=2)
+
+#first cluster solution with different map to see more
+
+pdf("kmeansimmo10_tonerlite.pdf")
+
+qmap("Frankfurt", 
+     zoom = 11,
+     maptype="toner-lite" #changing the map type
+     ) + 
+
+  geom_point(aes(x=lon, 
+                 y=lat, 
+                 color = kmeans10
+                 ), 
+             data=fr_immo,  
+             size=1)
+
+dev.off()
+
+#doing the same for k=40 solution
+
+pdf("kmeansimmo40_tonerlite.pdf")
+
+qmap("Frankfurt", 
+     zoom = 11,
+     maptype="toner-lite" #changing the map type
+     ) + 
+
+  geom_point(aes(x=lon, 
+                 y=lat, 
+                 color = kmeans40
+                 ), 
+             data=fr_immo,  
+             size=1)
+
+dev.off()
+
+```
+
+## Immoscout Frankfurt H-clust
+
+We now turn to apply hierarchical clustering to the same data set. 
+
+```{r}
+
+hclust.immo <- hclust(dist(fr_immo_reduced_scaled), method="complete")
+
+```
+
+
+```{r}
+
+# display dendogram
+plot(hclust.immo,
+            xlab="", 
+            ylab= "",
+            sub="",
+            hang = -1) #labels all on the same level
+
+# draw dendogram with red borders around the 10 clusters 
+rect.hclust(hclust.immo, 
+            k=10, 
+            border="red")
+
+
+```
+
+We can of course use the same cluster validation methods as before. Here, we use eclust and fviz_cluster again. 
+
+
+```{r}
+
+hc.res <- eclust(fr_immo_reduced_scaled, "hclust", k = 10, 
+                 hc_metric = "euclidean", 
+                 hc_method = "complete", 
+                 graph = FALSE)
+
+fviz_cluster(hc.res, geom = "point", ellipse.type = "norm",
+             palette = "jco", ggtheme = theme_minimal())
+
+```
+
+
+Finally, we quickly look at clustering as a pre-processing step
+
+## Excursion: Clustering as pre-processing step
+
+Use found kmeans (k = 10) cluster solution as an additional feature for the rpart prediction of rent.
+
+```{r}
+require(caret)
+
+#append kmeans solution and change to factor
+fr_immo$kmeans40 <- as.factor(km.res.40$cluster)
+
+## Split data in training and test set
+set.seed(7345)
+
+train <- sample(1:nrow(fr_immo), 0.8*nrow(fr_immo))
+fr_test <- fr_immo[-train,]
+fr_train <- fr_immo[train,]
+
+
+#Run RF on a model not including the cluster assignments and including it
+set.seed(1234)
+rpart.immo <- train(rent ~ m2 + rooms + lon + lat + dist_to_center, 
+                      method = "rpart",
+                      fr_train
+                          )
+rpart.immo$results
+#rpart with cluster solution
+set.seed(1234)
+rpart.immo.kmeans <- train(rent ~ m2 + rooms + lon + lat + dist_to_center + kmeans40,
+                      method = "rpart",
+                      fr_train
+                          )
+
+rpart.immo.kmeans$results #Cluster did not help in predicting the rent
+```
+
+
+
+
