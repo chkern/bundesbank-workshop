@@ -1,0 +1,119 @@
+---
+title: "Basics and CART: Exercise"
+output: html_notebook
+---
+
+This notebook walks you through the exercise for the supervised learning I session.
+
+## Setup
+
+```{r}
+library(rpart)
+library(partykit)
+library(caret)
+library(PRROC)
+```
+
+In this exercise, we use a reduced version of the BACH data set.
+
+```{r}
+load("BACH.Rda")
+```
+
+## Data preparation
+
+As a starting point, we begin with summarizing all variables to get a first impression of the data.
+
+```{r}
+summary(bach)
+```
+
+Our machine learning task is to predict whether a corporation experiences a net loss in the year 2015. For this setting, we first compute a dummy variable which indicates a loss with "1" and returns a "0" otherwise, based on the variable `bach$net_profit_or_loss`. The `ifelse` function might be helpful.
+
+```{r}
+bach$D_loss <- ifelse(bach$net_profit_or_loss < 0, 1, 0)
+bach$D_loss <- as.factor(bach$D_loss)
+summary(bach$D_loss)
+```
+
+Then we split the data set into a training and test part. However, now we use the year 2015 for the test set and all remaining years for training.
+
+```{r}
+bach_test <- bach[bach$year == "2015",]
+bach_train <- bach[bach$year != "2015",]
+```
+
+## CART
+
+### Grow and prune tree
+
+In order to build a classification tree with the training data, the `rpart` function can be used again. As the outcome variable, we plug in the new variable we created earlier. If this variable is of class factor, `rpart` adapts to this format and grows a classification tree (instead of a regression tree). Use all variables besides `net_profit_or_loss` and `return_on_equity` as predictors, e.g. via `outcome ~ . - net_profit_or_loss - return_on_equity`. It is useful to set the random number seed first.
+
+```{r}
+set.seed(6342)
+f_tree <- rpart(D_loss ~ . - net_profit_or_loss - return_on_equity, data = bach_train, cp = 0.0001)
+f_tree
+printcp(f_tree)
+plotcp(f_tree)
+```
+
+For pruning, we need the `cp` value of the best subtree. Here we prepare pruning according to the 1-Standard Error Rule.
+
+```{r}
+minx <- which.min(f_tree$cptable[,"xerror"])
+minxse <- f_tree$cptable[minx,"xerror"] + f_tree$cptable[minx,"xstd"]
+minse <- which.min(abs(f_tree$cptable[1:minx,"xerror"] - minxse))
+mincp <- f_tree$cptable[minse,"CP"]
+```
+
+Now prune the classification tree.
+
+```{r}
+p_tree <- prune(f_tree, cp = mincp)
+p_tree
+```
+
+### Variable Importance and Plot
+
+We can inspect the tree results by plotting the pruned classification tree. However, be prepared that also pruned trees can be quite large.
+
+```{r}
+prty_tree <- as.party(p_tree)
+plot(prty_tree, gp = gpar(fontsize = 6))
+```
+
+The `varImp` function is useful for listing the importance of each predictor variable for reducing node impurity.
+
+```{r}
+varImp(p_tree)
+```
+
+## Prediction
+
+For evaluating performance, we predict the outcome in the test set in two formats. We want to use `predict` for predicting class membership and also for computing predicted probabilities. Therefore, two prediction objects are generated.
+
+```{r}
+y_class <- predict(p_tree, newdata = bach_test, type = "class")
+y_prob <- predict(p_tree, newdata = bach_test, type = "prob")
+```
+
+Given predicted class membership, we can use the function `confusionMatrix` for evaluating our classification model.
+
+```{r}
+confusionMatrix(y_class, bach_test$D_loss)
+```
+
+Additionally, ROC curves are helpful for evaluating prediction performance with categorical outcomes. Here we could (e.g.) use the `PRROC` package, which has a function called `roc.curve`.
+
+```{r}
+fg <- y_prob[bach_test$D_loss == "1", 2]
+bg <- y_prob[bach_test$D_loss == "0", 2]
+roc <- roc.curve(scores.class0 = fg, scores.class1 = bg, curve = T)
+```
+
+Finally, we can print and plot the resulting roc object.
+
+```{r}
+roc
+plot(roc)
+```
